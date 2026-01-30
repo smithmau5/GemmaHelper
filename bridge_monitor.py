@@ -8,6 +8,7 @@ import time
 import json
 import requests
 import datetime
+import fcntl
 
 PORT = 8501
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
@@ -33,8 +34,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             try:
                 if os.path.exists(STATS_FILE):
-                    with open(STATS_FILE, 'rb') as f:
-                        self.wfile.write(f.read())
+                if os.path.exists(STATS_FILE):
+                    with open(STATS_FILE, 'r') as f:
+                         # Shared lock for reading - allows other readers but blocks writers
+                        fcntl.flock(f, fcntl.LOCK_SH)
+                        try:
+                            content = f.read()
+                            self.wfile.write(content.encode('utf-8'))
+                        finally:
+                            fcntl.flock(f, fcntl.LOCK_UN)
                 else:
                     self.wfile.write(b'{}')
             except Exception as e:
@@ -135,53 +143,73 @@ def watchdog_loop():
     while True:
         try:
             if os.path.exists(STATS_FILE):
-                with open(STATS_FILE, "r") as f:
-                    stats = json.load(f)
-                
-                save_needed = False
-                
-                # 1. Legacy Log Ingestion
-                if ingest_legacy_logs(stats):
-                    save_needed = True
-
-                current_health = stats.get("health", "Healthy")
-                last_fail = stats.get("last_fail_time", 0)
-                cooldown_elapsed = time.time() - last_fail
-                
-                # 2. Proactive Recovery Check
-                if current_health in ["Degraded", "Retrying"]:
+        try:
+            if os.path.exists(STATS_FILE):
+                # OPEN WITH LOCK for atomic Read-Update-Write
+                with open(STATS_FILE, "r+") as f:
+                    fcntl.flock(f, fcntl.LOCK_EX)
                     try:
-                        # Heartbeat check
-                        resp = requests.get(HEALTH_API_URL, timeout=3)
-                        is_alive = resp.status_code == 200
-                    except:
-                        is_alive = False
-                    
-                    if is_alive and cooldown_elapsed > CIRCUIT_BREAKER_COOLDOWN:
-                        print(f"[*] Watchdog: Service recovered. Resetting status to Healthy.")
-                        stats["health"] = "Healthy"
-                        stats["fail_count"] = 0
+                        f.seek(0)
+                        content = f.read()
+                        if not content.strip():
+                             stats = {}
+                        else:
+                             stats = json.loads(content)
                         
-                        # Add Event
-                        stats["events"] = stats.get("events", [])
-                        stats["events"].append({
-                            "timestamp": datetime.datetime.now().isoformat(),
-                            "level": "SUCCESS",
-                            "message": "Watchdog: Local service heartbeat recovered. Auto-resetting circuit."
-                        })
-                        stats["events"] = stats["events"][-50:]
-                        save_needed = True
+                        save_needed = False
                         
-                    elif is_alive and current_health == "Degraded":
-                        # If alive but still in cooldown, move to Half-Open/Retrying
-                        print("[*] Watchdog: Service alive, waiting for cooldown.")
-                        stats["health"] = "Retrying"
-                        save_needed = True
-                
-                if save_needed:
-                    stats["history"] = sorted(stats["history"], key=lambda x: x["timestamp"]) # Sort by time
-                    with open(STATS_FILE, "w") as f:
-                        json.dump(stats, f, indent=4)
+                        # 1. Legacy Log Ingestion
+                        if ingest_legacy_logs(stats):
+                            save_needed = True
+
+                        current_health = stats.get("health", "Healthy")
+                        last_fail = stats.get("last_fail_time", 0)
+                        cooldown_elapsed = time.time() - last_fail
+                        
+                        # 2. Proactive Recovery Check
+                        if current_health in ["Degraded", "Retrying"]:
+                            # We release lock briefly if we are going to do network IO? 
+                            # Ideally no, but if we do, we risk state change.
+                            # Since this is local heartbeat, it's fast (ms). 
+                            # Blocking write for 10ms is fine.
+                            try:
+                                # Heartbeat check
+                                resp = requests.get(HEALTH_API_URL, timeout=3)
+                                is_alive = resp.status_code == 200
+                            except:
+                                is_alive = False
+                            
+                            if is_alive and cooldown_elapsed > CIRCUIT_BREAKER_COOLDOWN:
+                                print(f"[*] Watchdog: Service recovered. Resetting status to Healthy.")
+                                stats["health"] = "Healthy"
+                                stats["fail_count"] = 0
+                                
+                                # Add Event
+                                stats["events"] = stats.get("events", [])
+                                stats["events"].append({
+                                    "timestamp": datetime.datetime.now().isoformat(),
+                                    "level": "SUCCESS",
+                                    "message": "Watchdog: Local service heartbeat recovered. Auto-resetting circuit."
+                                })
+                                stats["events"] = stats["events"][-50:]
+                                save_needed = True
+                                
+                            elif is_alive and current_health == "Degraded":
+                                # If alive but still in cooldown, move to Half-Open/Retrying
+                                print("[*] Watchdog: Service alive, waiting for cooldown.")
+                                stats["health"] = "Retrying"
+                                save_needed = True
+                        
+                        if save_needed:
+                            stats["history"] = sorted(stats["history"], key=lambda x: x["timestamp"]) # Sort by time
+                            f.seek(0)
+                            f.truncate()
+                            json.dump(stats, f, indent=4)
+                            f.flush()
+                            os.fsync(f.fileno())
+                            
+                    finally:
+                        fcntl.flock(f, fcntl.LOCK_UN)
             
         except Exception as e:
             print(f"[!] Watchdog Error: {e}")

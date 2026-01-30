@@ -7,6 +7,7 @@ import os
 import time
 import subprocess
 import argparse
+import fcntl
 
 # Configuration Loader - Globalized
 HOME_DIR = os.path.expanduser("~")
@@ -44,8 +45,17 @@ CIRCUIT_BREAKER_COOLDOWN = RELIABILITY.get("circuit_breaker_cooldown", 300)
 def estimate_tokens(text):
     return len(text) // 4
 
-def get_stats():
-    default_stats = {
+# File Locking Helper
+def update_stats(modifier_func):
+    """
+    Safely updates the stats file using an exclusive lock.
+    modifier_func: A function that takes the current stats dict and modifies it in-place.
+    """
+    if not os.path.exists(GLOBAL_CONFIG_DIR):
+        os.makedirs(GLOBAL_CONFIG_DIR)
+        
+    # Safe default in case file doesn't exist
+    stats = {
         "total_local_tokens": 0, 
         "total_cloud_tokens": 0, 
         "history": [],
@@ -54,56 +64,95 @@ def get_stats():
         "last_fail_time": 0,
         "events": []
     }
-    if os.path.exists(STATS_FILE):
-        try:
-            with open(STATS_FILE, "r") as f:
-                stats = json.load(f)
-                for key, val in default_stats.items():
-                    if key not in stats:
-                        stats[key] = val
-                return stats
-        except Exception:
-            pass
-    return default_stats
 
-def save_stats(stats):
-    with open(STATS_FILE, "w") as f:
-        json.dump(stats, f, indent=4)
+    try:
+        # Open with r+ (read/write) or w+ (create if not exists)
+        mode = "r+" if os.path.exists(STATS_FILE) else "w+"
+        with open(STATS_FILE, mode) as f:
+            # ACQUIRE EXCLUSIVE LOCK
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                # Read content
+                try:
+                    f.seek(0)
+                    content = f.read()
+                    if content.strip():
+                        file_stats = json.loads(content)
+                        # Merge defaults
+                        for k, v in stats.items():
+                            if k not in file_stats:
+                                file_stats[k] = v
+                        stats = file_stats
+                except ValueError:
+                    # JSON corrupt or empty, use defaults
+                    pass
+                
+                # APPLY MODIFICATIONS
+                modifier_func(stats)
+                
+                # Write back
+                f.seek(0)
+                f.truncate()
+                json.dump(stats, f, indent=4)
+                f.flush()
+                os.fsync(f.fileno()) # Ensure write to disk
+                
+            finally:
+                # RELEASE LOCK
+                fcntl.flock(f, fcntl.LOCK_UN)
+                
+    except Exception as e:
+        print(f"[!] Error updating stats file: {e}")
+
+def get_stats_readonly():
+    """Reads stats without locking (for classification decisions where strict consistency isn't critical), or with shared lock."""
+    # For speed in classification, we might just read. But to be safe vs partial writes:
+    try:
+        if not os.path.exists(STATS_FILE): return {}
+        with open(STATS_FILE, "r") as f:
+             fcntl.flock(f, fcntl.LOCK_SH)
+             stats = json.load(f)
+             fcntl.flock(f, fcntl.LOCK_UN)
+             return stats
+    except:
+        return {"health": "Healthy"}
 
 def log_event(message, level="INFO"):
-    stats = get_stats()
-    stats["events"].append({
-        "timestamp": datetime.datetime.now().isoformat(),
-        "level": level,
-        "message": message
-    })
-    stats["events"] = stats["events"][-50:]
-    save_stats(stats)
+    def _modify(stats):
+        stats["events"].append({
+            "timestamp": datetime.datetime.now().isoformat(),
+            "level": level,
+            "message": message
+        })
+        stats["events"] = stats["events"][-50:]
+    
+    update_stats(_modify)
 
 def log_usage(prompt, response, route, latency=0, metadata=None):
     tokens = estimate_tokens(prompt + (response or ""))
-    stats = get_stats()
     
-    if route == "local" and response:
-        stats["total_local_tokens"] += tokens
-        stats["health"] = "Healthy"
-        stats["fail_count"] = 0
-    elif route == "cloud":
-        stats["total_cloud_tokens"] += tokens
+    def _modify(stats):
+        if route == "local" and response:
+            stats["total_local_tokens"] = stats.get("total_local_tokens", 0) + tokens
+            stats["health"] = "Healthy"
+            stats["fail_count"] = 0
+        elif route == "cloud":
+            stats["total_cloud_tokens"] = stats.get("total_cloud_tokens", 0) + tokens
+            
+        entry = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "route": route,
+            "tokens": tokens,
+            "latency": round(latency, 2),
+            "prompt_preview": prompt[:50] + "..." if len(prompt) > 50 else prompt
+        }
+        if metadata:
+            entry["metadata"] = metadata
+            
+        stats["history"].append(entry)
+        stats["history"] = stats["history"][-100:]
         
-    entry = {
-        "timestamp": datetime.datetime.now().isoformat(),
-        "route": route,
-        "tokens": tokens,
-        "latency": round(latency, 2),
-        "prompt_preview": prompt[:50] + "..." if len(prompt) > 50 else prompt
-    }
-    if metadata:
-        entry["metadata"] = metadata
-        
-    stats["history"].append(entry)
-    stats["history"] = stats["history"][-100:]
-    save_stats(stats)
+    update_stats(_modify)
 
 def check_ollama_alive():
     try:
@@ -131,7 +180,7 @@ def classify_task(prompt):
     cloud_keywords = RULES.get("cloud_keywords", ["reason", "plan", "design"])
     
     prompt_lower = prompt.lower()
-    stats = get_stats()
+    stats = get_stats_readonly()
     
     if stats["health"] == "Degraded":
         cooldown_elapsed = time.time() - stats["last_fail_time"]
@@ -139,8 +188,11 @@ def classify_task(prompt):
             return "cloud"
         else:
             log_event("Circuit breaker cooldown expired. Testing local service.", "INFO")
-            stats["health"] = "Healthy"
-            save_stats(stats)
+            
+            def _reset(stats):
+                stats["health"] = "Healthy"
+            
+            update_stats(_reset)
 
     for kw in cloud_keywords:
         if re.search(kw, prompt_lower): return "cloud"
@@ -174,19 +226,24 @@ def call_local_ollama(prompt):
         return None
 
 def handle_local_failure(hard_crash=False):
-    stats = get_stats()
-    stats["fail_count"] += 1
-    stats["last_fail_time"] = time.time()
-    
-    if hard_crash or stats["fail_count"] >= CIRCUIT_BREAKER_FAIL_THRESHOLD:
-        stats["health"] = "Degraded"
-        print("[!!!] CIRCUIT BREAKER TRIPPED. Triggering Watchdog...")
-        attempt_self_healing()
-    else:
-        stats["health"] = "Retrying"
-        log_event(f"Local request failed ({stats['fail_count']}/{CIRCUIT_BREAKER_FAIL_THRESHOLD})", "WARNING")
+    def _modify(stats):
+        stats["fail_count"] = stats.get("fail_count", 0) + 1
+        stats["last_fail_time"] = time.time()
         
-    save_stats(stats)
+        if hard_crash or stats["fail_count"] >= CIRCUIT_BREAKER_FAIL_THRESHOLD:
+            stats["health"] = "Degraded"
+            print("[!!!] CIRCUIT BREAKER TRIPPED. Triggering Watchdog...")
+            # We trigger self healing OUTSIDE the lock to avoid blocking
+        else:
+            stats["health"] = "Retrying"
+            
+    update_stats(_modify)
+    
+    # Check if we need to self-heal (reading back safely)
+    stats = get_stats_readonly()
+    if stats.get("health") == "Degraded":
+         attempt_self_healing()
+         log_event(f"Local request failed", "WARNING") # This handles its own locking
 
 def call_cloud_gemini(prompt, metadata=None):
     print(f"[*] Routing to CLOUD (Gemini API)...")
