@@ -86,6 +86,19 @@ python3 ag_hybrid_router.py --log-only "Internal prompt description" --metadata 
 - **Manual Reset**: If the system is stuck in "Degraded" mode, the Watchdog will auto-reset after 5 minutes once it detects a successful heartbeat.
 
 ## Maintaining Architecture (GEMINI.md)
-The `GEMINI.md` file serves as the **Governance Layer** for Antigravity. It tells the AI exactly which tasks should be offloaded locally.
-- **Update Rules**: If you add new local capabilities or change model endpoints, ensure `GEMINI.md` is updated so Antigravity knows to use them.
-- **Context Maps**: Keep the "Usage Pattern" section updated with any new structural mapping strategies you develop.
+The `GEMINI.md` file serves as the **Governance Layer** for Antigravity. It tells the AI exactly which tasks should be offloaded locally across different project workspaces.
+
+### Recommended Structure
+To ensure consistency, your `GEMINI.md` should follow this pattern:
+
+1. **Model Mapping**: A table defining which models handle which task categories.
+2. **Instructions for Antigravity**: 
+   - **Self-Triage**: Remind the AI to check task categories before routing.
+   - **Unified Logging**: Crucially, include the absolute path to `ag_hybrid_router.py` so the dashboard stays updated regardless of which folder is open:
+     ```markdown
+     `python3 /home/flyinknut/Vibe_Projects/GemmaHelper/ag_hybrid_router.py "Task Summary" --log-only --metadata '{"source": "antigravity", "task_type": "local_inference"}'`
+     ```
+3. **Usage Patterns**: Examples of how to chain local Gemma tasks with Cloud Gemini tasks (e.g., local file reading -> cloud planning).
+
+> [!IMPORTANT]
+> Always use **absolute paths** in your `GEMINI.md` instructions. This ensures that Antigravity can execute the router scripts even when you are working in a different project directory.
