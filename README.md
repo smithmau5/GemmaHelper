@@ -30,18 +30,29 @@ ollama pull gemma3:4b  # Smarter, higher resource cost
 
 ### 3. Install Python Dependencies
 ```bash
-pip install requests
+pip install -r requirements.txt
 ```
 
-### 4. Run the Bridge Monitor
-The monitor provides a visual dashboard and handles system recovery.
+### 4. Global Configuration (Automatic)
+The system now uses a global configuration directory at `~/.config/gemma-bridge/`. 
+To initialize the system, run the installation script:
 ```bash
-python3 bridge_monitor.py
+bash install_service.sh
 ```
-View the dashboard at: `http://localhost:8501/dashboard.html`
+
+### 5. Access the Dashboard
+View the real-time telemetry dashboard at:
+`http://localhost:8501/dashboard.html`
+
+## Systemd Service
+For persistent background monitoring and routing, the bridge can be run as a systemd user service:
+```bash
+systemctl --user status gemma-bridge.service
+```
+The `install_service.sh` script automatically configures and enables this for you.
 
 ## Configuration
-The system is fully configurable via `antigravity_config.json`. You can adjust timeouts, endpoints, and routing rules without modifying code.
+The system is fully configurable via `~/.config/gemma-bridge/antigravity_config.json`. You can adjust timeouts, endpoints, and routing rules without modifying code.
 
 ### Key Settings
 - **`routing_rules`**: Define which keywords trigger local vs. cloud routing.
@@ -52,8 +63,8 @@ The system is fully configurable via `antigravity_config.json`. You can adjust t
 ```json
 {
     "routing_rules": {
-        "local_keywords": ["summarize", "format", "check"],
-        "cloud_keywords": ["reason", "plan", "design"]
+        "local_keywords": ["summarize", "format", "check", "boilerplate"],
+        "cloud_keywords": ["reason", "plan", "design", "architect"]
     }
 }
 ```
