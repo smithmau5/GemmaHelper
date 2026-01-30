@@ -27,6 +27,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Location', '/dashboard.html')
             self.end_headers()
             return
+        elif self.path == '/usage_stats.json':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            try:
+                if os.path.exists(STATS_FILE):
+                    with open(STATS_FILE, 'rb') as f:
+                        self.wfile.write(f.read())
+                else:
+                    self.wfile.write(b'{}')
+            except Exception as e:
+                 print(f"Error serving stats: {e}")
+            return
         super().do_GET()
 
     def log_message(self, format, *args):
