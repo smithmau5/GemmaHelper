@@ -45,6 +45,91 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+def ingest_legacy_logs(stats):
+    legacy_file = os.path.expanduser("~/gemma_savings.log")
+    if not os.path.exists(legacy_file):
+        return False
+    
+    changed = False
+    try:
+        with open(legacy_file, "r") as f:
+            lines = f.readlines()
+            
+        # Parse and merge
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+            
+            # Simple dedup based on raw line content stored in metadata or recreating the line
+            # Better: Check matching timestamp + tokens
+            try:
+                # Format: Fri Jan 30 05:15:33 PM EST 2026: Saved 31 tokens (Gemma 1B) - Test Ping
+                parts = line.split(": Saved ")
+                if len(parts) < 2: continue
+                
+                date_str_raw = parts[0]
+                rest = parts[1]
+                
+                # Extract tokens
+                tokens_str = rest.split(" tokens")[0]
+                tokens = int(tokens_str)
+                
+                # Extract Message
+                if ") - " in rest:
+                    message = rest.split(") - ")[1]
+                else:
+                    message = "Legacy Log Task"
+
+                # Parse Date - Remove Timezone (EST/EDT)
+                # "Fri Jan 30 05:15:33 PM EST 2026"
+                d_tokens = date_str_raw.split()
+                if len(d_tokens) == 7: # Has Timezone
+                    d_tokens.pop(5) 
+                
+                clean_date = " ".join(d_tokens)
+                dt = datetime.datetime.strptime(clean_date, "%a %b %d %I:%M:%S %p %Y")
+                iso_time = dt.isoformat()
+                
+                # Check for duplicates in history
+                is_duplicate = False
+                for event in stats.get("history", []):
+                    # Check if source is legacy match OR if timestamp is identical
+                    # Since legacy log has 1-second precision, exact match on parsed time might fail if ISO has microseconds
+                    # We check if ISO starts with the legacy time string (up to seconds)
+                    if event.get("metadata", {}).get("original_line") == line:
+                        is_duplicate = True
+                        break
+                    
+                    # Also check fuzzy time match to avoid re-importing things that were migrated differently
+                    event_dt = datetime.datetime.fromisoformat(event["timestamp"])
+                    if abs((event_dt - dt).total_seconds()) < 2 and event["tokens"] == tokens and event["route"] == "local":
+                         is_duplicate = True
+                         break
+                
+                if not is_duplicate:
+                    print(f"[*] Importing legacy log: {message}")
+                    stats["history"].append({
+                        "timestamp": iso_time,
+                        "route": "local",
+                        "tokens": tokens,
+                        "latency": 0,
+                        "prompt_preview": message,
+                        "metadata": {
+                            "source": "legacy_log_file",
+                            "original_line": line
+                        }
+                    })
+                    stats["total_local_tokens"] += tokens
+                    changed = True
+            except Exception as e:
+                # print(f"Log Parse Error: {e}")
+                pass
+                
+    except Exception as e:
+        print(f"[!] Legacy Ingest Error: {e}")
+        
+    return changed
+
 def watchdog_loop():
     print("[*] Watchdog: Proactive health monitoring started.")
     while True:
@@ -53,11 +138,17 @@ def watchdog_loop():
                 with open(STATS_FILE, "r") as f:
                     stats = json.load(f)
                 
+                save_needed = False
+                
+                # 1. Legacy Log Ingestion
+                if ingest_legacy_logs(stats):
+                    save_needed = True
+
                 current_health = stats.get("health", "Healthy")
                 last_fail = stats.get("last_fail_time", 0)
                 cooldown_elapsed = time.time() - last_fail
                 
-                # Proactive Recovery Check
+                # 2. Proactive Recovery Check
                 if current_health in ["Degraded", "Retrying"]:
                     try:
                         # Heartbeat check
@@ -79,20 +170,23 @@ def watchdog_loop():
                             "message": "Watchdog: Local service heartbeat recovered. Auto-resetting circuit."
                         })
                         stats["events"] = stats["events"][-50:]
+                        save_needed = True
                         
-                        with open(STATS_FILE, "w") as f:
-                            json.dump(stats, f, indent=4)
                     elif is_alive and current_health == "Degraded":
                         # If alive but still in cooldown, move to Half-Open/Retrying
                         print("[*] Watchdog: Service alive, waiting for cooldown.")
                         stats["health"] = "Retrying"
-                        with open(STATS_FILE, "w") as f:
-                            json.dump(stats, f, indent=4)
+                        save_needed = True
+                
+                if save_needed:
+                    stats["history"] = sorted(stats["history"], key=lambda x: x["timestamp"]) # Sort by time
+                    with open(STATS_FILE, "w") as f:
+                        json.dump(stats, f, indent=4)
             
         except Exception as e:
             print(f"[!] Watchdog Error: {e}")
             
-        time.sleep(10)
+        time.sleep(5)
 
 def start_server():
     socketserver.TCPServer.allow_reuse_address = True
