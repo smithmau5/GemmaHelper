@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+.venv
+usage_stats.json
+monitor.log
+GITHUB_INSTRUCTIONS.md

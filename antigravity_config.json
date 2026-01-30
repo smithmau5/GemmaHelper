@@ -1,0 +1,43 @@
+{
+    "system": {
+        "log_level": "info",
+        "use_local_inference_for_routine_tasks": true
+    },
+    "inference": {
+        "router_script": "./ag_hybrid_router.py",
+        "local_endpoint": "http://localhost:11434/api/generate",
+        "health_endpoint": "http://localhost:11434/api/tags",
+        "local_model": "gemma3:1b",
+        "num_thread": 2,
+        "timeout_seconds": 25
+    },
+    "reliability": {
+        "circuit_breaker_threshold": 2,
+        "circuit_breaker_cooldown": 300
+    },
+    "routing_rules": {
+        "local_keywords": [
+            "summariz",
+            "format",
+            "boilerplate",
+            "fix",
+            "check",
+            "lint",
+            "cleanup",
+            "refactor",
+            "sort",
+            "list"
+        ],
+        "cloud_keywords": [
+            "reason",
+            "plan",
+            "architect",
+            "design",
+            "why",
+            "explain complex",
+            "analysis",
+            "compare",
+            "strategy"
+        ]
+    }
+}

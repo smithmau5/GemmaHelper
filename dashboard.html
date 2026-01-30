@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemma Bridge Monitor V2</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --card-bg: #0d1117;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent-local: #238636;
+            --accent-cloud: #1f6feb;
+            --accent-error: #da3633;
+            --accent-wait: #d29922;
+            --border-color: #30363d;
+            --chart-grid: #161b22;
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        }
+
+        [data-theme="light"] {
+            --bg-color: #f6f8fa;
+            --card-bg: #ffffff;
+            --text-primary: #1f2328;
+            --text-secondary: #656d76;
+            --accent-local: #1a7f37;
+            --accent-cloud: #0969da;
+            --accent-error: #cf222e;
+            --accent-wait: #9a6700;
+            --border-color: #d0d7de;
+            --chart-grid: #eaeef2;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-family);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .theme-toggle {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 15px;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--text-secondary);
+        }
+
+        /* ... previous styles ... */
+        .container {
+            max-width: 1000px;
+            width: 100%;
+        }
+
+        header {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+        }
+
+        .health-ribbon {
+            width: 100%;
+            padding: 8px 0;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .health-healthy {
+            background: rgba(35, 134, 54, 0.15);
+            color: var(--accent-local);
+            border: 1px solid rgba(35, 134, 54, 0.3);
+        }
+
+        .health-degraded {
+            background: rgba(218, 54, 51, 0.15);
+            color: var(--accent-error);
+            border: 1px solid rgba(218, 54, 51, 0.3);
+        }
+
+        .health-retrying {
+            background: rgba(210, 153, 34, 0.15);
+            color: var(--accent-wait);
+            border: 1px solid rgba(210, 153, 34, 0.3);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .metric-title {
+            color: var(--text-secondary);
+            font-size: 12px;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .metric-sub {
+            font-size: 11px;
+            margin-top: 4px;
+            color: var(--text-secondary);
+        }
+
+        .text-local {
+            color: var(--accent-local);
+        }
+
+        .text-cloud {
+            color: var(--accent-cloud);
+        }
+
+        .text-wait {
+            color: var(--accent-wait);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-local {
+            background: rgba(35, 134, 54, 0.2);
+            color: var(--accent-local);
+        }
+
+        .badge-cloud {
+            background: rgba(31, 111, 235, 0.2);
+            color: var(--accent-cloud);
+        }
+
+        .chart-container {
+            height: 250px;
+            position: relative;
+        }
+
+        #lastUpdated {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div id="healthIndicator" class="health-ribbon health-healthy">
+            SYSTEM STATUS: HEALTHY // ALL SYSTEMS NOMINAL
+        </div>
+
+        <header>
+            <h1>Bridge Monitor <span style="font-weight: normal; color: var(--text-secondary);">v3.1</span></h1>
+            <div style="display: flex; align-items: center;">
+                <button id="themeToggle" class="theme-toggle">🌗 Light Mode</button>
+                <div id="lastUpdated">Connecting...</div>
+            </div>
+        </header>
+
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="card">
+                <div class="metric-title">Savings (Gemma 3)</div>
+                <div class="metric-value text-local" id="localTokens">0</div>
+                <div class="metric-sub">Tokens processed locally</div>
+            </div>
+            <div class="card">
+                <div class="metric-title">API Usage (Gemini)</div>
+                <div class="metric-value text-cloud" id="cloudTokens">0</div>
+                <div class="metric-sub">Tokens sent to cloud</div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <div class="metric-title" style="margin-bottom: 10px;">Token Usage Trend (Local vs Cloud)</div>
+                <div class="chart-container">
+                    <canvas id="tokenChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <div class="metric-title" style="margin-bottom: 10px;">Local (Gemma) Inference Speed (Tokens/sec)</div>
+                <div class="chart-container" style="height: 150px;">
+                    <canvas id="usageChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid" style="grid-template-columns: 2fr 1fr;">
+            <div class="card">
+                <div class="metric-title" style="margin-bottom: 10px;">System Health Events (Watchdog)</div>
+                <div class="events-container" style="max-height: 150px; overflow-y: auto;">
+                    <table id="eventsTable" style="background: transparent;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid var(--border-color);">
+                                <th style="width: 100px; font-size: 11px;">Time</th>
+                                <th style="width: 80px; font-size: 11px;">Status</th>
+                                <th style="font-size: 11px;">Message</th>
+                            </tr>
+                        </thead>
+                        <tbody style="font-size: 11px;"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card">
+                <div class="metric-title">Reliability Telemetry</div>
+                <div style="margin-top: 15px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <span style="font-size: 12px;">Circuit State</span>
+                        <span id="circuitState" class="text-local" style="font-weight: bold;">CLOSED</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <span style="font-size: 12px;">Fail Count</span>
+                        <span id="failCount" style="font-weight: bold;">0</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="font-size: 12px;">Self-Healing Status</span>
+                        <span id="healingStatus" style="font-weight: bold; color: var(--text-secondary);">STANDBY</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="metric-title" style="margin-bottom: 10px;">Unified Execution Log (Hybrid + Internal)</div>
+            <div class="logs-scroll-container" style="max-height: 400px; overflow-y: auto; position: relative;">
+                <table id="logsTable">
+                    <thead
+                        style="position: sticky; top: 0; background: var(--card-bg); z-index: 10; border-bottom: 2px solid var(--border-color);">
+                        <tr>
+                            <th style="width: 100px;">Time</th>
+                            <th style="width: 70px;">Route</th>
+                            <th style="width: 120px;">Source</th>
+                            <th>Prompt</th>
+                            <th style="width: 60px; text-align: right;">Speed</th>
+                            <th style="width: 70px; text-align: right;">Tokens</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chartInstance = null;
+        let tokenChartInstance = null;
+
+        // Theme Support
+        const themeToggle = document.getElementById('themeToggle');
+        const currentTheme = localStorage.getItem('theme') || 'dark';
+
+        if (currentTheme === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+            themeToggle.innerText = "🌗 Dark Mode";
+        }
+
+        themeToggle.addEventListener('click', () => {
+            let theme = document.documentElement.getAttribute('data-theme');
+            if (theme === 'light') {
+                document.documentElement.removeAttribute('data-theme');
+                localStorage.setItem('theme', 'dark');
+                themeToggle.innerText = "🌗 Light Mode";
+            } else {
+                document.documentElement.setAttribute('data-theme', 'light');
+                localStorage.setItem('theme', 'light');
+                themeToggle.innerText = "🌗 Dark Mode";
+            }
+            // Redraw charts to match theme
+            if (chartInstance) chartInstance.destroy();
+            if (tokenChartInstance) tokenChartInstance.destroy();
+            chartInstance = null;
+            tokenChartInstance = null;
+            fetchData();
+        });
+
+        async function fetchData() {
+            try {
+                const response = await fetch('/usage_stats.json');
+                if (!response.ok) throw new Error("Stats fetch failed");
+                const data = await response.json();
+                updateUI(data);
+            } catch (e) {
+                document.getElementById('lastUpdated').innerText = "OFFLINE";
+            }
+        }
+
+        function updateUI(data) {
+            document.getElementById('lastUpdated').innerText = `LAST SYNC: ${new Date().toLocaleTimeString()}`;
+
+            // Health Ribbon
+            const hi = document.getElementById('healthIndicator');
+            hi.className = 'health-ribbon';
+            if (data.health === 'Healthy') {
+                hi.classList.add('health-healthy');
+                hi.innerText = "SYSTEM STATUS: HEALTHY // ALL SYSTEMS NOMINAL";
+                document.getElementById('circuitState').innerText = "CLOSED (Healthy)";
+                document.getElementById('circuitState').className = "text-local";
+            } else if (data.health === 'Degraded') {
+                hi.classList.add('health-degraded');
+                hi.innerText = "SYSTEM STATUS: DEGRADED // CIRCUIT BREAKER TRIPPED - CLOUD FAILOVER ACTIVE";
+                document.getElementById('circuitState').innerText = "OPEN (Bypassed)";
+                document.getElementById('circuitState').className = "text-cloud";
+            } else {
+                hi.classList.add('health-retrying');
+                hi.innerText = "SYSTEM STATUS: RETRYING // LOCAL GEMMA RECOVERING";
+                document.getElementById('circuitState').innerText = "HALF-OPEN (Recovering)";
+                document.getElementById('circuitState').className = "text-wait";
+            }
+
+            document.getElementById('failCount').innerText = data.fail_count || 0;
+            document.getElementById('localTokens').innerText = data.total_local_tokens.toLocaleString();
+            document.getElementById('cloudTokens').innerText = data.total_cloud_tokens.toLocaleString();
+
+            // Self-healing Status
+            const hs = document.getElementById('healingStatus');
+            if (data.health === 'Degraded') {
+                hs.innerText = "ACTIVE RECOVERY";
+                hs.style.color = "var(--accent-error)";
+            } else if (data.health === 'Retrying') {
+                hs.innerText = "MONITORING";
+                hs.style.color = "var(--accent-wait)";
+            } else {
+                hs.innerText = "STANDBY";
+                hs.style.color = "var(--text-secondary)";
+            }
+
+            // System Events Table ...
+            const etBody = document.querySelector('#eventsTable tbody');
+            etBody.innerHTML = '';
+            (data.events || []).slice(-5).reverse().forEach(ev => {
+                const tr = document.createElement('tr');
+                const time = new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                let color = ev.level === 'SUCCESS' ? 'var(--accent-local)' : (ev.level === 'WARNING' ? 'var(--accent-wait)' : (ev.level === 'ERROR' ? 'var(--accent-error)' : 'var(--text-secondary)'));
+                tr.innerHTML = `
+                    <td style="color: var(--text-secondary);">${time}</td>
+                    <td style="color: ${color}; font-weight: bold;">${ev.level}</td>
+                    <td style="color: var(--text-secondary);">${ev.message}</td>
+                `;
+                etBody.appendChild(tr);
+            });
+
+            // Execution Log Table
+            const tbody = document.querySelector('#logsTable tbody');
+            tbody.innerHTML = '';
+            const historySlice = [...data.history].reverse();
+
+            let totalTPS = 0;
+            let tpsCount = 0;
+
+            historySlice.forEach(entry => {
+                let speedText = '-';
+                if (entry.route === 'local' && entry.latency > 0) {
+                    const tps = entry.tokens / entry.latency;
+                    totalTPS += tps;
+                    tpsCount++;
+                    speedText = tps.toFixed(1) + ' t/s';
+                }
+                const tr = document.createElement('tr');
+                const timeStr = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const badgeClass = entry.route === 'local' ? 'badge-local' : 'badge-cloud';
+                const source = (entry.metadata && entry.metadata.source) ? entry.metadata.source : "User CLI";
+                const sourceColor = source.includes('internal') ? '#ab7df8' : 'var(--text-secondary)';
+
+                tr.innerHTML = `
+                <td style="color: var(--text-secondary); font-family: monospace;">${timeStr}</td>
+                <td><span class="badge ${badgeClass}">${entry.route.toUpperCase()}</span></td>
+                <td style="color: ${sourceColor}; font-weight: 500;">${source}</td>
+                <td style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 350px;">${escapeHtml(entry.prompt_preview)}</td>
+                <td style="text-align: right; color: var(--text-secondary);">${speedText}</td>
+                <td style="text-align: right; font-family: monospace;">${entry.tokens}</td>
+            `;
+                tbody.appendChild(tr);
+            });
+
+            if (tpsCount > 0) {
+                // Avg speed removed from UI
+            }
+
+            updateChart(data.history);
+            updateTokenChart(data.history);
+        }
+
+        function updateChart(history) {
+            const ctx = document.getElementById('usageChart').getContext('2d');
+            const recent = history.slice(-30);
+            const labels = recent.map((_, i) => i);
+            const speedData = recent.map(h => (h.route === 'local' && h.latency > 0) ? (h.tokens / h.latency) : null);
+            const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim();
+            const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim();
+
+            if (chartInstance) {
+                chartInstance.data.labels = labels;
+                chartInstance.data.datasets[0].data = speedData;
+                chartInstance.options.scales.y.grid.color = gridColor;
+                chartInstance.options.scales.y.ticks.color = textColor;
+                chartInstance.update();
+            } else {
+                chartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Speed (tokens/s)',
+                            data: speedData,
+                            borderColor: '#238636',
+                            backgroundColor: 'rgba(35, 134, 54, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                            spanGaps: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { display: false },
+                            y: {
+                                beginAtZero: true,
+                                grid: { color: gridColor },
+                                ticks: { color: textColor }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateTokenChart(history) {
+            const ctx = document.getElementById('tokenChart').getContext('2d');
+            const recent = history.slice(-30);
+            const labels = recent.map((_, i) => i);
+            const localTokenData = recent.map(h => h.route === 'local' ? h.tokens : 0);
+            const cloudTokenData = recent.map(h => h.route === 'cloud' ? h.tokens : 0);
+            const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim();
+            const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim();
+
+            if (tokenChartInstance) {
+                tokenChartInstance.data.labels = labels;
+                tokenChartInstance.data.datasets[0].data = localTokenData;
+                tokenChartInstance.data.datasets[1].data = cloudTokenData;
+                tokenChartInstance.options.scales.y.grid.color = gridColor;
+                tokenChartInstance.options.scales.y.ticks.color = textColor;
+                tokenChartInstance.options.plugins.legend.labels.color = textColor;
+                tokenChartInstance.update();
+            } else {
+                tokenChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Local Tokens',
+                                data: localTokenData,
+                                borderColor: '#238636',
+                                backgroundColor: 'rgba(35, 134, 54, 0.1)',
+                                fill: true,
+                                tension: 0.3
+                            },
+                            {
+                                label: 'Cloud Tokens',
+                                data: cloudTokenData,
+                                borderColor: '#1f6feb',
+                                backgroundColor: 'rgba(31, 111, 235, 0.1)',
+                                fill: true,
+                                tension: 0.3
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { display: false },
+                            y: {
+                                beginAtZero: true,
+                                grid: { color: gridColor },
+                                ticks: { color: textColor }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                labels: { color: textColor, boxWidth: 12, font: { size: 10 } }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function escapeHtml(text) {
+            return text ? text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : "";
+        }
+
+        fetchData();
+        setInterval(fetchData, 3000);
+    </script>
+</body>
+
+</html>
