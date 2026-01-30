@@ -8,8 +8,14 @@ import time
 import subprocess
 import argparse
 
-# Configuration Loader
-CONFIG_FILE = "antigravity_config.json"
+# Configuration Loader - Globalized
+HOME_DIR = os.path.expanduser("~")
+GLOBAL_CONFIG_DIR = os.path.join(HOME_DIR, ".config", "gemma-bridge")
+CONFIG_FILE = os.path.join(GLOBAL_CONFIG_DIR, "antigravity_config.json")
+STATS_FILE = os.path.join(GLOBAL_CONFIG_DIR, "usage_stats.json")
+
+if not os.path.exists(GLOBAL_CONFIG_DIR):
+    os.makedirs(GLOBAL_CONFIG_DIR)
 
 def load_config():
     try:
@@ -33,7 +39,7 @@ NUM_THREAD = INFERENCE.get("num_thread", 2)
 CIRCUIT_BREAKER_FAIL_THRESHOLD = RELIABILITY.get("circuit_breaker_threshold", 2)
 CIRCUIT_BREAKER_COOLDOWN = RELIABILITY.get("circuit_breaker_cooldown", 300)
 
-STATS_FILE = "usage_stats.json"
+# Moved to Configuration Loader section
 
 def estimate_tokens(text):
     return len(text) // 4

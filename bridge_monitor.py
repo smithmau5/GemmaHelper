@@ -11,7 +11,9 @@ import datetime
 
 PORT = 8501
 DIRECTORY = os.getcwd()
-STATS_FILE = os.path.join(DIRECTORY, "usage_stats.json")
+HOME_DIR = os.path.expanduser("~")
+GLOBAL_CONFIG_DIR = os.path.join(HOME_DIR, ".config", "gemma-bridge")
+STATS_FILE = os.path.join(GLOBAL_CONFIG_DIR, "usage_stats.json")
 HEALTH_API_URL = "http://localhost:11434/api/tags"
 CIRCUIT_BREAKER_COOLDOWN = 300
 
