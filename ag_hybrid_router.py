@@ -201,6 +201,7 @@ def main():
     parser.add_argument("prompt", nargs="*", help="The prompt to process")
     parser.add_argument("--log-only", action="store_true", help="Just log the usage to the dashboard without processing")
     parser.add_argument("--metadata", help="Optional JSON metadata for the log entry")
+    parser.add_argument("--route", choices=["local", "cloud", "auto"], default="auto", help="Force a specific route (local/cloud) or auto-detect")
     
     args = parser.parse_args()
     prompt = " ".join(args.prompt)
@@ -208,12 +209,26 @@ def main():
         return
 
     if args.log_only:
-        meta = json.loads(args.metadata) if args.metadata else {"source": "antigravity-internal"}
-        print(f"[*] Unified Logging: Recording cloud-only event...")
-        log_usage(prompt, "[External Process]", "cloud", 0, meta)
+        meta = json.loads(args.metadata) if args.metadata else {"source": "antigravity"}
+        
+        # Determine route: Use explicit flag if set, otherwise default to 'cloud' for safety but warn?
+        # Actually, for log-only, we should really default to 'cloud' if not specified to maintain current behavior,
+        # OR use the 'auto' classification if they want.
+        # But usually log-only implies the work is ALREADY DONE.
+        
+        actual_route = args.route
+        if actual_route == "auto":
+             # If they didn't specify, default to cloud for external logs as per previous behavior, 
+             # UNLESS they want us to classify it? 
+             # Let's assume 'cloud' default for legacy compatibility if strict route isn't provided.
+             actual_route = "cloud"
+        
+        print(f"[*] Unified Logging: Recording {actual_route}-only event...")
+        log_usage(prompt, "[External Process]", actual_route, 0, meta)
         return
 
-    route = classify_task(prompt)
+    # Normal Processing Mode
+    route = args.route if args.route != "auto" else classify_task(prompt)
     if route == "local":
         if call_local_ollama(prompt) is None:
             print("[*] Auto-Fallback: Retrying via Cloud...")
