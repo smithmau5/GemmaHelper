@@ -10,7 +10,7 @@ import requests
 import datetime
 
 PORT = 8501
-DIRECTORY = os.getcwd()
+DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 HOME_DIR = os.path.expanduser("~")
 GLOBAL_CONFIG_DIR = os.path.join(HOME_DIR, ".config", "gemma-bridge")
 STATS_FILE = os.path.join(GLOBAL_CONFIG_DIR, "usage_stats.json")
