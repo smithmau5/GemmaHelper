@@ -15,7 +15,9 @@
 1. **Self-Triage:** For every sub-task, evaluate if it falls under the "Local" categories. If yes, you MUST attempt to use the local Ollama API first.
 2. **Context Window Management:** Use Gemma 3's 128K context window for long file reads before sending a condensed summary to the cloud model.
 3. **Fallback Protocol:** If the local Gemma response fails or is incoherent for three consecutive attempts, escalate the specific sub-task to Gemini Cloud.
-4. **Token Budgeting:** Log the estimated token savings for every local task executed to the `~/gemma_savings.log` (or `usage_stats.json`).
+4. **Token Budgeting:** For EVERY local task executed via Ollama, you MUST log the usage to update the dashboard by running:
+   `python3 /home/flyinknut/Vibe_Projects/GemmaHelper/ag_hybrid_router.py "Task Summary" --log-only --metadata '{"source": "antigravity", "task_type": "local_inference"}'`
+   (Do NOT write to log files manually).
 
 ## Usage Pattern
 When preparing a multi-file refactor:
