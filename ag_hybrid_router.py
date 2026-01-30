@@ -219,9 +219,16 @@ def call_local_ollama(prompt):
         print(f"\n[LOCAL RESPONSE ({latency:.1f}s)]:\n{resp_text}")
         log_usage(prompt, resp_text, "local", latency)
         return resp_text
+    except requests.exceptions.Timeout:
+        latency = time.time() - start_time
+        print(f"[!] Local Request TIMED OUT ({latency:.1f}s). System may be under heavy load.")
+        log_event(f"Local request timed out after {latency:.1f}s (System Load/Swap issue)", "WARNING")
+        handle_local_failure()
+        return None
     except Exception as e:
         latency = time.time() - start_time
         print(f"[!] Local Request Failed ({latency:.1f}s): {e}")
+        log_event(f"Local request failed: {type(e).__name__}", "ERROR")
         handle_local_failure()
         return None
 

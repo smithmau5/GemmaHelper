@@ -9,7 +9,7 @@
         "health_endpoint": "http://localhost:11434/api/tags",
         "local_model": "gemma3:1b",
         "num_thread": 2,
-        "timeout_seconds": 25
+        "timeout_seconds": 60
     },
     "reliability": {
         "circuit_breaker_threshold": 2,
