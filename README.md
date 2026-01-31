@@ -96,7 +96,7 @@ To ensure consistency, your `GEMINI.md` should follow this pattern:
    - **Self-Triage**: Remind the AI to check task categories before routing.
    - **Unified Logging**: Crucially, include the absolute path to `ag_hybrid_router.py` so the dashboard stays updated regardless of which folder is open:
      ```markdown
-     `python3 /home/flyinknut/Vibe_Projects/GemmaHelper/ag_hybrid_router.py "Task Summary" --log-only --metadata '{"source": "antigravity", "task_type": "local_inference"}'`
+     `python3 /home/USERNAME/Vibe_Projects/GemmaHelper/ag_hybrid_router.py "Task Summary" --log-only --metadata '{"source": "antigravity", "task_type": "local_inference"}'`
      ```
 3. **Usage Patterns**: Examples of how to chain local Gemma tasks with Cloud Gemini tasks (e.g., local file reading -> cloud planning).
 

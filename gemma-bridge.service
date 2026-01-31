@@ -3,8 +3,8 @@ Description=Gemma Bridge Monitor Service
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 /home/flyinknut/Vibe_Projects/GemmaHelper/bridge_monitor.py
-WorkingDirectory=/home/flyinknut/Vibe_Projects/GemmaHelper
+ExecStart=/usr/bin/python3 /home/USERNAME/Vibe_Projects/GemmaHelper/bridge_monitor.py
+WorkingDirectory=/home/USERNAME/Vibe_Projects/GemmaHelper
 Restart=on-failure
 RestartSec=5
 Type=simple
