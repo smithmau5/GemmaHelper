@@ -16,7 +16,7 @@
 2. **Context Window Management:** Use Gemma 3's 128K context window for long file reads before sending a condensed summary to the cloud model.
 3. **Fallback Protocol:** If the local Gemma response fails or is incoherent for three consecutive attempts, escalate the specific sub-task to Gemini Cloud.
 4. **Token Budgeting:** For EVERY local task executed via Ollama, you MUST log the usage to update the dashboard by running:
-   `python3 /home/USERNAME/Vibe_Projects/GemmaHelper/ag_hybrid_router.py "Task Summary" --log-only --metadata '{"source": "antigravity", "task_type": "local_inference"}'`
+   `python3 /home/USERNAME/PROJECTS_DIR/GemmaHelper/ag_hybrid_router.py "Task Summary" --log-only --metadata '{"source": "antigravity", "task_type": "local_inference"}'`
    (Do NOT write to log files manually).
 
 ## Usage Pattern
